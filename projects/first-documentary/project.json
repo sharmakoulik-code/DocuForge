@@ -1,0 +1,11 @@
+{
+  "name": "first-documentary",
+  "title": "First Documentary",
+  "runtime_target_minutes": 28,
+  "language": "en",
+  "originality_statement": "All narration, graphics, and music in this project are original or properly licensed. No fabricated facts, quotes, or statistics.",
+  "theme": "",
+  "strict_mode": false,
+  "created_at": "2026-11-21T21:24:13.596Z",
+  "version": 1
+}

@@ -1,10 +1,41 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Analysis, type Claim, type Project } from "./api";
 
+const CHAPTER_RE = /^##\s+Chapter\s+(\d+)\s*:\s*(.+?)\s*$/;
+
+/**
+ * Word count under the same rule the engine uses (parseChapters): only text
+ * after a `## Chapter N: title` line counts. Pre-chapter prose and heading
+ * lines are excluded, so the live figure here matches the saved outline
+ * instead of quietly disagreeing with it.
+ */
+function liveStats(markdown: string): { total: number; chapterNumbers: number[] } {
+  const bodies: string[] = [];
+  let current: string[] | null = null;
+  const chapterNumbers: number[] = [];
+  for (const line of markdown.split(/\r?\n/)) {
+    const m = line.match(CHAPTER_RE);
+    if (m) {
+      if (current) bodies.push(current.join("\n"));
+      chapterNumbers.push(parseInt(m[1], 10));
+      current = [];
+    } else if (current) {
+      current.push(line);
+    }
+  }
+  if (current) bodies.push(current.join("\n"));
+  const total = bodies.reduce((sum, body) => {
+    const trimmed = body.trim();
+    return sum + (trimmed ? trimmed.split(/\s+/).filter(Boolean).length : 0);
+  }, 0);
+  return { total, chapterNumbers };
+}
+
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selected, setSelected] = useState<string>("");
   const [markdown, setMarkdown] = useState("");
+  const [savedMarkdown, setSavedMarkdown] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [status, setStatus] = useState("Loading…");
@@ -35,6 +66,7 @@ export default function App() {
           api.getFactcheck(selected),
         ]);
         setMarkdown(md);
+        setSavedMarkdown(md);
         setAnalysis(an);
         setClaims(fc.claims ?? []);
         setStatus("Ready");
@@ -44,9 +76,14 @@ export default function App() {
     })();
   }, [selected]);
 
-  // Live word count + runtime estimate (client-side, 150 wpm planning figure).
-  const liveWords = markdown.trim() ? markdown.trim().split(/\s+/).length : 0;
+  // Live word count + runtime estimate (client-side, 150 wpm planning figure),
+  // counted under the engine's chapter rules so it agrees with the outline.
+  const live = liveStats(markdown);
+  const liveWords = live.total;
   const liveMinutes = liveWords / 150;
+  const dirty = markdown !== savedMarkdown;
+  const unsourced = claims.filter((c) => c.source.trim() === "").length;
+  const numberingGaps = live.chapterNumbers.some((n, i) => n !== i + 1);
 
   async function save() {
     if (!selected) return;
@@ -55,6 +92,7 @@ export default function App() {
       await api.saveScript(selected, markdown);
       const { analysis: an } = await api.getAnalysis(selected);
       setAnalysis(an);
+      setSavedMarkdown(markdown);
       setStatus("Saved");
     } catch (e) {
       setStatus(`Save failed: ${(e as Error).message}`);
@@ -125,8 +163,12 @@ export default function App() {
         <div>
           <h2>Script editor</h2>
           <p style={{ color: "#555" }}>
-            Markdown with <code>## Chapter N: title</code> headings. Live: {liveWords} words ≈ {liveMinutes.toFixed(1)} min
-            (150 wpm planning figure only).
+            Markdown with <code>## Chapter N: title</code> headings. Live: {liveWords} words ≈{" "}
+            {liveMinutes.toFixed(1)} min (150 wpm planning figure only, counted inside chapters like the
+            outline).{" "}
+            {dirty ? (
+              <strong style={{ color: "#a60" }}>Unsaved changes — outline updates on Save.</strong>
+            ) : null}
           </p>
           <textarea
             value={markdown}
@@ -146,19 +188,29 @@ export default function App() {
                 {analysis.runtimeTargetMinutes} min)
               </p>
               <ol>
-                {analysis.chapters.map((c) => (
-                  <li key={c.number}>
+                {analysis.chapters.map((c, i) => (
+                  <li key={`${c.number}-${i}`}>
                     {c.title} <span style={{ color: "#777" }}>({c.wordCount}w, {c.estimatedRuntime})</span>
                   </li>
                 ))}
               </ol>
+              {analysis.chapters.some((c, i) => c.number !== i + 1) || numberingGaps ? (
+                <p style={{ color: "#a60" }}>
+                  Chapter numbers are not 1, 2, 3… in order. They are kept in document order — the engine does
+                  not renumber them.
+                </p>
+              ) : null}
             </>
           ) : (
             <p>No analysis yet.</p>
           )}
 
           <h2>Sources / claims</h2>
-          <p style={{ color: "#555" }}>Link each claim to a source. No fabrication — every fact needs a source.</p>
+          <p style={{ color: "#555" }}>
+            Link each claim to a source and the chapter it appears in. No fabrication — every fact needs a
+            source.
+            {unsourced > 0 ? <strong style={{ color: "#a60" }}> {unsourced} without a source.</strong> : null}
+          </p>
           {claims.map((c) => (
             <div key={c.id} style={{ border: "1px solid #ddd", padding: 8, marginBottom: 8 }}>
               <input
@@ -180,6 +232,22 @@ export default function App() {
                 <option value="unverified">unverified</option>
                 <option value="verified">verified</option>
                 <option value="disputed">disputed</option>
+              </select>{" "}
+              <select
+                title="Chapter this claim appears in"
+                value={c.chapter === null || c.chapter === undefined ? "" : String(c.chapter)}
+                onChange={(e) =>
+                  void updateClaim(c.id, {
+                    chapter: e.target.value === "" ? null : Number(e.target.value),
+                  })
+                }
+              >
+                <option value="">no chapter</option>
+                {(analysis?.chapters ?? []).map((ch) => (
+                  <option key={ch.number} value={ch.number}>
+                    Ch {ch.number}: {ch.title}
+                  </option>
+                ))}
               </select>{" "}
               <button onClick={() => void removeClaim(c.id)}>Remove</button>
             </div>
