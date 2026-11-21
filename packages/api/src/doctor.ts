@@ -7,6 +7,8 @@
  */
 
 import { execFileSync } from "child_process";
+import * as fs from "fs";
+import * as path from "path";
 
 interface Check {
   name: string;
@@ -69,19 +71,65 @@ function checkFfprobe(): Check {
   }
 }
 
+/**
+ * Locate the locally installed TypeScript compiler entry point.
+ *
+ * We deliberately avoid `npx`: on Windows `npx` is `npx.cmd`, a batch file
+ * that Node's child_process refuses to execute without `shell: true`
+ * (CVE-2024-27980 hardening), so `execFileSync("npx", …)` always throws
+ * ENOENT on Windows even when TypeScript is installed correctly. Running
+ * `<node> node_modules/typescript/lib/tsc.js` is shell-free and identical
+ * on every platform.
+ *
+ * Walks up from this file so it works from packages/api/dist, from a
+ * hoisted root node_modules (npm workspaces), or from a nested one.
+ */
+export function findLocalTsc(startDir: string = __dirname): string | null {
+  let dir = startDir;
+  for (let depth = 0; depth < 8; depth++) {
+    const candidate = path.join(dir, "node_modules", "typescript", "lib", "tsc.js");
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
 function checkTypeScript(): Check {
+  const tscJs = findLocalTsc();
+  if (tscJs) {
+    try {
+      const out = execFileSync(process.execPath, [tscJs, "--version"], {
+        encoding: "utf8",
+        timeout: 30_000,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      return { name: "TypeScript", ok: true, detail: out.trim(), fix: "" };
+    } catch (err) {
+      return {
+        name: "TypeScript",
+        ok: false,
+        detail: `TypeScript present but failed to run (${tscJs}): ${(err as Error).message.split("\n")[0]}`,
+        fix: "Delete node_modules and package-lock.json, then run `npm install` at the repo root.",
+      };
+    }
+  }
+  // Fallback: global npx. On Windows this needs a shell because npx is a .cmd.
   try {
-    const out = execFileSync("npx", ["tsc", "--version"], {
+    const isWin = process.platform === "win32";
+    const out = execFileSync(isWin ? "npx.cmd" : "npx", ["tsc", "--version"], {
       encoding: "utf8",
       timeout: 30_000,
       stdio: ["ignore", "pipe", "ignore"],
+      shell: isWin,
     });
     return { name: "TypeScript", ok: true, detail: out.trim(), fix: "" };
   } catch {
     return {
       name: "TypeScript",
       ok: false,
-      detail: "TypeScript NOT FOUND (npx tsc failed)",
+      detail: "TypeScript NOT FOUND (no local node_modules/typescript and `npx tsc --version` failed)",
       fix: "Run `npm install` at the repo root to install TypeScript (devDependency).",
     };
   }
