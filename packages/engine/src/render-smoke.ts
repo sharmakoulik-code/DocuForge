@@ -58,6 +58,26 @@ function findFont(): string | null {
   return null;
 }
 
+/**
+ * Escape a filesystem path for use inside an FFmpeg filter description.
+ *
+ * Two things break Windows font paths (`C:\Windows\Fonts\arial.ttf`):
+ *   1. Backslash is the filter-syntax escape character, so separators are
+ *      normalized to '/'. Windows APIs accept forward slashes, so the path
+ *      still resolves.
+ *   2. ':' separates filter options, so a drive-letter colon must be escaped.
+ *      FFmpeg parses a filter description in two passes (filtergraph, then
+ *      filter options), so the backslash itself must be escaped: the filter
+ *      must receive `\:` which means the argv string needs `\\:` — two
+ *      backslash characters. A single `\:` is consumed by the outer parse and
+ *      the colon still splits the option list ("No option name near ...").
+ *
+ * POSIX paths contain neither character, so they pass through unchanged.
+ */
+export function escapeFilterPath(p: string): string {
+  return p.replace(/\\/g, "/").replace(/:/g, "\\\\:");
+}
+
 export interface SmokeResult {
   outputPath: string;
   durationSeconds: number;
@@ -82,7 +102,8 @@ export function renderSmoke(outDir?: string): SmokeResult {
   const outputPath = path.join(root, "smoke.mp4");
 
   const font = findFont();
-  const fontOpt = font ? `fontfile=${font.replace(/\\/g, "\\\\").replace(/:/g, "\\:")}:` : "";
+  // Windows-safe filter escaping; POSIX paths are unaffected.
+  const fontOpt = font ? `fontfile=${escapeFilterPath(font)}:` : "";
 
   // Video: 0-3s title card, 3-10s kinetic text.
   // Title card: dark background + "DocuForge" + subtitle.
