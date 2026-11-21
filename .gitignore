@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+projects/*/renders/
+projects/*/final/
+renders/
+.vite/
+coverage/
+*.tsbuildinfo
