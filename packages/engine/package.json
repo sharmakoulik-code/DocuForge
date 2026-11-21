@@ -1,0 +1,14 @@
+{
+  "name": "@docuforge/engine",
+  "version": "0.2.0",
+  "private": true,
+  "description": "DocuForge engine: timing model, hardware detection, smoke render, project scaffold, script parsing.",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "hardware:report": "node dist/hardware.js --report",
+    "smoke:render": "node dist/render-smoke.js"
+  }
+}
