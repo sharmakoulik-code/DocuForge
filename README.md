@@ -19,6 +19,12 @@ captions).
 - **HARDWARE-AWARE** — detects OS/RAM/CPU/GPU at startup, prints a report,
   runs a quick benchmark, estimates realistic time for a 30-min film.
   M1–M3 must work on CPU only.
+- **PERSONAL USE, NOT A PRODUCT** — this is a private tool for one creator's
+  own channel, not something to sell, publish, or host for others. There is
+  no sign-up, no multi-user support, no billing, no public deployment, and no
+  packaging/installer work. Do not add distribution or commercialization
+  requirements; open-source license compliance is tracked only because it is
+  free and cheap to respect, not because the app is redistributed.
 
 ## Current milestone: P1 (Projects + Script) on top of M1 (P0)
 
