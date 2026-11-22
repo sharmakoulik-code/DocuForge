@@ -1,0 +1,14 @@
+# Approved Milestone 1 runtime dependencies
+fastapi==0.165.0
+uvicorn==0.54.0
+pydantic==2.14.4
+SQLAlchemy==2.1.9
+alembic==1.20.1
+huey==3.5.4
+psutil==7.2.2
+py-cpuinfo==9.0.0
+
+# Approved Milestone 1 development/test dependencies
+httpx==0.28.1
+pytest==9.2.0
+ruff==0.17.6
