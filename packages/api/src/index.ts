@@ -273,7 +273,41 @@ if (require.main === module) {
       }
       console.log(`Projects: ${defaultProjectsRoot()}`);
     })
-    .catch((err) => {
+    .catch(async (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        console.error(`Port ${PORT} is already in use.`);
+        // If the thing holding the port is another DocuForge, say so plainly
+        // instead of making the user hunt a pid.
+        try {
+          const res = await fetch(`http://127.0.0.1:${PORT}/api/meta`, {
+            signal: AbortSignal.timeout(1500),
+          });
+          if (res.ok) {
+            const meta = (await res.json()) as {
+              pid?: number;
+              mode?: string;
+              uptimeSeconds?: number;
+              webBuildPresent?: boolean;
+            };
+            console.error(
+              `Another DocuForge is already running there (pid ${meta.pid}, mode ${meta.mode}, up ${meta.uptimeSeconds}s).`
+            );
+            console.error(`Just open it: http://localhost:${PORT}/`);
+            if (!meta.webBuildPresent) {
+              console.error("(That instance was started before the UI was built — restart it to serve the editor.)");
+            }
+          }
+        } catch {
+          // Not a DocuForge instance, or it is not answering. Fall through.
+        }
+        console.error("");
+        console.error("Stop the process holding the port:");
+        console.error(
+          `  PowerShell:  Get-NetTCPConnection -LocalPort ${PORT} -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }`
+        );
+        console.error(`  Or use another port:  $env:PORT=${PORT + 1}; npm start`);
+        process.exit(1);
+      }
       console.error("Failed to start:", err);
       process.exit(1);
     });
