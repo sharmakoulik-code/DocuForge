@@ -66,11 +66,47 @@ npm run test
 | `npm run doctor` | Dependency doctor: Node 20+, FFmpeg, FFprobe, TypeScript. Exits 0 when all pass; non-zero with fix instructions when missing. |
 | `npm run hardware:report` | OS/RAM/CPU/GPU report + CPU/FFmpeg benchmark + 30-min film estimate. Kokoro TTS and faster-whisper report as NOT INSTALLED / NOT MEASURED. |
 | `npm run smoke:render` | 10-second smoke render to `renders/smoke-10s/smoke.mp4` (1920x1080, 30 fps, H.264/AAC), validated by FFprobe when available. |
-| `npm run test` | Run Vitest suite (timing, hardware, license gate, project, script). |
+| `npm run test` | Run Vitest suite: timing, hardware, license gate, project, script, doctor, API contract, single-server/static. |
 | `npm run docuforge -- new <name> [--title ...] [--runtime ...] [--language ...] [--theme ...] [--strict]` | Create a new project under `projects/<name>/`. |
 | `npm run docuforge -- list` | List projects. |
-| `npm run dev:api` | Start Fastify API on http://localhost:3001. |
-| `npm run dev:web` | Start Vite web UI on http://localhost:5173 (proxies /api to the API). |
+| `npm run build:all` | Compile everything: engine + api + web. |
+| `npm start` | **Single-server mode.** One Fastify process serves the API and the built editor on http://localhost:3001. Requires `npm run build:all` first. |
+| `npm run dev:api` | Start the API alone on http://localhost:3001 (no UI). |
+| `npm run dev:web` | Start the Vite dev server on http://localhost:5173 with hot reload; proxies `/api` to port 3001. |
+
+### Running it
+
+Two modes, pick one:
+
+**Single server (normal use)** — one process, one port, no proxy:
+
+```bash
+npm run build:all
+npm start                      # http://localhost:3001
+```
+
+**Dev mode (editing the UI)** — two terminals, hot reload:
+
+```bash
+npm run dev:api                # terminal A: API on :3001
+npm run dev:web                # terminal B: editor on :5173
+```
+
+Configuration (environment variables, all optional):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `3001` | HTTP port. Invalid values are refused at startup. |
+| `HOST` | `0.0.0.0` | Bind address. Use `127.0.0.1` to keep it off the LAN. |
+| `PROJECTS_ROOT` | `<repo>/projects` | Where project folders live. |
+| `DOCUFORGE_WEB_DIR` | `<repo>/packages/web/dist` | Where the built editor lives. |
+
+`GET /api/meta` reports what the running process is actually serving (mode, roots,
+pid, uptime), so you never have to guess which build is live. `SIGINT`/`SIGTERM`
+shut down gracefully — in-flight requests finish, project files are never touched.
+
+If the UI has not been built, `/` returns a 503 page telling you to run
+`npm run build:web` instead of a blank error.
 
 ## Hardware report format
 

@@ -8,6 +8,7 @@
  *
  * Endpoints (P1):
  *   GET  /api/health
+ *   GET  /api/meta
  *   GET  /api/projects
  *   POST /api/projects
  *   GET  /api/projects/:name
@@ -16,6 +17,11 @@
  *   GET  /api/projects/:name/script/analysis
  *   GET  /api/projects/:name/factcheck
  *   PUT  /api/projects/:name/factcheck
+ *   GET  /*                       — the built editor (single-server mode)
+ *
+ * Configuration (env):
+ *   PORT=3001  HOST=0.0.0.0  PROJECTS_ROOT=<repo>/projects
+ *   DOCUFORGE_WEB_DIR=<repo>/packages/web/dist
  */
 
 import Fastify from "fastify";
@@ -29,9 +35,30 @@ import {
   defaultProjectsRoot,
   validateProjectName,
 } from "@docuforge/engine";
+import { registerStatic, defaultWebDir } from "./static";
 
-const PORT = parseInt(process.env.PORT ?? "3001", 10);
+const DEFAULT_PORT = 3001;
+
+/** Parse PORT, refusing nonsense instead of silently listening on NaN. */
+function resolvePort(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_PORT;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0 || n > 65535) {
+    throw new Error(`Invalid PORT "${raw}" — expected an integer 0-65535.`);
+  }
+  return n;
+}
+
+const PORT = resolvePort(process.env.PORT);
 const HOST = process.env.HOST ?? "0.0.0.0";
+const STARTED_AT = Date.now();
+
+export interface BuildAppOptions {
+  /** Directory containing the built editor (index.html + assets/). */
+  webDir?: string;
+  /** Set false in tests to keep output quiet. */
+  logger?: boolean;
+}
 
 const CLAIM_STATUSES = ["verified", "unverified", "disputed"] as const;
 
@@ -46,10 +73,33 @@ function writeFileAtomic(target: string, data: string): void {
   fs.renameSync(tmp, target);
 }
 
-export function buildApp(projectsRoot = defaultProjectsRoot()) {
-  const app = Fastify({ logger: true });
+export function buildApp(
+  projectsRoot: string = process.env.PROJECTS_ROOT?.trim()
+    ? path.resolve(process.env.PROJECTS_ROOT.trim())
+    : defaultProjectsRoot(),
+  options: BuildAppOptions = {}
+) {
+  const webDir = options.webDir ?? process.env.DOCUFORGE_WEB_DIR ?? defaultWebDir();
+  const app = Fastify({ logger: options.logger ?? true });
 
   app.get("/api/health", async () => ({ ok: true, service: "docuforge-api", version: "0.2.0" }));
+
+  // Everything the UI / a human needs to answer "what is this process serving?"
+  app.get("/api/meta", async () => {
+    const webBuildPresent = fs.existsSync(path.join(webDir, "index.html"));
+    return {
+      service: "docuforge-api",
+      version: "0.2.0",
+      mode: webBuildPresent ? "single-server" : "api-only",
+      node: process.version,
+      platform: `${process.platform} ${process.arch}`,
+      pid: process.pid,
+      uptimeSeconds: Math.round((Date.now() - STARTED_AT) / 1000),
+      projectsRoot,
+      webDir,
+      webBuildPresent,
+    };
+  });
 
   app.get("/api/projects", async () => {
     return { projects: listProjects(projectsRoot) };
@@ -165,16 +215,66 @@ export function buildApp(projectsRoot = defaultProjectsRoot()) {
     return { ok: true };
   });
 
+  // Uniform JSON errors; never an HTML stack trace from an API route.
+  app.setErrorHandler((err: Error & { statusCode?: number }, req, reply) => {
+    const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
+    if (status >= 500) req.log.error({ err }, "request failed");
+    return reply.code(status).send({
+      error: err.name || "Error",
+      message: err.message,
+      path: req.raw.url,
+    });
+  });
+
+  // Registered last: /api/* routes win, everything else is the built editor.
+  registerStatic(app, webDir);
+
   return app;
 }
 
 if (require.main === module) {
   const app = buildApp();
-  app.listen({ port: PORT, host: HOST }, (err) => {
-    if (err) {
-      app.log.error(err);
+  const webDir = process.env.DOCUFORGE_WEB_DIR ?? defaultWebDir();
+  const webBuildPresent = fs.existsSync(path.join(webDir, "index.html"));
+
+  let closing = false;
+  const shutdown = (signal: string) => {
+    if (closing) return;
+    closing = true;
+    console.log(`${signal} received — closing DocuForge, waiting for in-flight requests…`);
+    const timer = setTimeout(() => {
+      console.error("Shutdown timed out after 5s — exiting.");
       process.exit(1);
-    }
-    console.log(`DocuForge API listening on http://${HOST}:${PORT}`);
-  });
+    }, 5000);
+    app
+      .close()
+      .then(() => {
+        clearTimeout(timer);
+        console.log("Closed cleanly. Project files are untouched on disk.");
+        process.exit(0);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        console.error("Error during shutdown:", err);
+        process.exit(1);
+      });
+  };
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+  app
+    .listen({ port: PORT, host: HOST })
+    .then(() => {
+      console.log(`DocuForge listening on http://${HOST}:${PORT}`);
+      if (webBuildPresent) {
+        console.log(`Editor (built UI, same port): http://localhost:${PORT}/`);
+      } else {
+        console.log("Editor: no web build found — run `npm run build:web`, or use `npm run dev:web`");
+      }
+      console.log(`Projects: ${defaultProjectsRoot()}`);
+    })
+    .catch((err) => {
+      console.error("Failed to start:", err);
+      process.exit(1);
+    });
 }
