@@ -2,7 +2,7 @@
   "name": "docuforge",
   "version": "0.2.0",
   "private": true,
-  "description": "DocuForge — local-first, user-directed documentary production tool. FREE, open-source, no cloud account.",
+  "description": "DocuForge \u2014 local-first, user-directed documentary production tool. FREE, open-source, no cloud account.",
   "license": "MIT",
   "type": "commonjs",
   "workspaces": [
@@ -10,15 +10,17 @@
   ],
   "scripts": {
     "build": "npm run build --workspace=@docuforge/engine && npm run build --workspace=@docuforge/api",
+    "build:all": "npm run build && npm run build:web",
+    "build:web": "npm run build --workspace=@docuforge/web",
+    "start": "node packages/api/dist/index.js",
+    "dev:api": "npm run dev --workspace=@docuforge/api",
+    "dev:web": "npm run dev --workspace=@docuforge/web",
     "doctor": "node packages/api/dist/doctor.js",
     "hardware:report": "node packages/engine/dist/hardware.js --report",
     "smoke:render": "node packages/engine/dist/render-smoke.js",
     "docuforge": "node packages/api/dist/cli.js",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "dev:api": "npm run dev --workspace=@docuforge/api",
-    "dev:web": "npm run dev --workspace=@docuforge/web",
-    "build:web": "npm run build --workspace=@docuforge/web"
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
